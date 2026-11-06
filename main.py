@@ -1,10 +1,14 @@
 import asyncio
 import os
+import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+
+# Включаем логирование, чтобы видеть ошибки в панели Render
+logging.basicConfig(level=logging.INFO)
 
 # Бот забирает настройки из Render
 TOKEN = os.getenv("BOT_TOKEN")
@@ -16,7 +20,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 users_db = {}
-# Список ID пользователей, которые успешно прошли проверку пароля
+# Список ID пользователей, которые успешно прошли проверку пароля (сбрасывается при перезапуске Render)
 authorized_users = set()
 
 # Состояния для сдачи профита и ввода пароля
@@ -156,7 +160,7 @@ async def change_status(callback: CallbackQuery):
         return
         
     username = f"@{callback.from_user.username}" if callback.from_user.username else callback.from_user.full_name
-    status_key = callback.data.split("_")
+    status_key = callback.data.split("_")[1] # Исправлено: берем именно ключ статуса (work/busy/rest)
     new_status = STATUSES[status_key]
     
     users_db[user_id] = {"name": username, "status": new_status}
@@ -223,41 +227,14 @@ async def process_profit_report(message: Message, state: FSMContext):
             text = f"💰 **Новый профит**\n\n👤 Воркер: **{username}**\n📊 Информация: **{profit_info}**"
             await bot.send_message(chat_id=GROUP_CHAT_ID, text=text, parse_mode="Markdown")
         except Exception as e:
-            print(f"Ошибка отправки в чат: {e}")
+            print(f"Ошибка отправки профита в чат: {e}")
 
-# Защищенная команда /team для Тимлида
-@dp.message(Command("team"))
-async def cmd_team(message: Message):
-    if ADMIN_ID and str(message.from_user.id) != str(ADMIN_ID):
-        try:
-            await message.delete()
-        except Exception:
-            pass
-        return
-
-    if not users_db:
-        await message.answer("В базе еще нет воркеров. Пусть все нажмут /start в личке у бота.")
-        return
-        
-    working, busy, resting = [], [], []
-    for user_data in users_db.values():
-        name = user_data["name"]
-        status = user_data["status"]
-        if "🟢" in status:
-            working.append(f"• {name}")
-        elif "🟡" in status:
-            busy.append(f"• {name}")
-        elif "🔴" in status:
-            resting.append(f"• {name}")
-            
-    text = "📊 **Текущий статус команды:**\n\n"
-    text += "🟢 **РАБОТАЮТ:**\n" + ("\n".join(working) if working else "_Никого нет_") + "\n\n"
-    text += "🟡 **ЗАНЯТЫ:**\n" + ("\n".join(busy) if busy else "_Никого нет_") + "\n\n"
-    text += "🔴 **ОТДЫХАЮТ:**\n" + ("\n".join(resting) if resting else "_Никого нет_")
-    await message.answer(text, parse_mode="Markdown")
-
+# Точка входа для запуска бота
 async def main():
-    print("Бот запущен успешно!")
+    if not TOKEN:
+        print("Ошибка: Токен бота (BOT_TOKEN) не задан в переменных окружения Render!")
+        return
+    print("Бот успешно запущен и готов к работе...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
