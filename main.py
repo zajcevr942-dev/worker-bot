@@ -20,7 +20,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 users_db = {}
-# Список ID пользователей, которые успешно прошли проверку пароля (сбрасывается при перезапуске Render)
+# Список ID пользователей, которые успешно прошли проверку пароля
 authorized_users = set()
 
 # Состояния для сдачи профита и ввода пароля
@@ -160,7 +160,7 @@ async def change_status(callback: CallbackQuery):
         return
         
     username = f"@{callback.from_user.username}" if callback.from_user.username else callback.from_user.full_name
-    status_key = callback.data.split("_")[1] # Исправлено: берем именно ключ статуса (work/busy/rest)
+    status_key = callback.data.split("_")[1] # Берем именно "work", "busy" или "rest"
     new_status = STATUSES[status_key]
     
     users_db[user_id] = {"name": username, "status": new_status}
@@ -229,13 +229,55 @@ async def process_profit_report(message: Message, state: FSMContext):
         except Exception as e:
             print(f"Ошибка отправки профита в чат: {e}")
 
-# Точка входа для запуска бота
-async def main():
-    if not TOKEN:
-        print("Ошибка: Токен бота (BOT_TOKEN) не задан в переменных окружения Render!")
+# Просмотр статусов всей команды
+@dp.message(Command("team"))
+async def cmd_team(message: Message):
+    user_id = message.from_user.id
+    
+    # Проверяем авторизацию (чтобы чужие люди из чатов не спамили команду)
+    if not is_authorized(user_id):
+        try:
+            await message.reply("🔒 **Доступ запрещен.** Сначала авторизуйтесь в личке у бота через /start")
+        except Exception:
+            pass
         return
-    print("Бот успешно запущен и готов к работе...")
-    await dp.start_polling(bot)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    if not users_db:
+        await message.answer("📋 **Список команды пуст.** Никто еще не выбрал статус.")
+        return
+
+    # Разделяем команду по категориям для удобства
+    working_now = []
+    busy_now = []
+    resting_now = []
+
+    for u_id, data in users_db.items():
+        if "Работает" in data["status"]:
+            working_now.append(data["name"])
+        elif "Занят" in data["status"]:
+            busy_now.append(data["name"])
+        else:
+            resting_now.append(data["name"])
+
+    text = "📊 **Текущий статус всей команды:**\n\n"
+    
+    text += "🟢 **В РАБОТЕ:**\n"
+    if working_now:
+        text += "\n".join([f"  • {user}" for user in working_now]) + "\n"
+    else:
+        text += "  _Никого нет_\n"
+        
+    text += "\n🟡 **ЗАНЯТЫ:**\n"
+    if busy_now:
+        text += "\n".join([f"  • {user}" for user in busy_now]) + "\n"
+    else:
+        text += "  _Никого нет_\n"
+        
+    text += "\n🔴 **ОТДЫХАЮТ:**\n"
+    if resting_now:
+        text += "\n".join([f"  • {user}" for user in resting_now]) + "\n"
+    else:
+        text += "  _Никого нет_"
+
+    await message.answer(text, parse_mode="Markdown")
+
