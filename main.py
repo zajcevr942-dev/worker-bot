@@ -4,7 +4,6 @@ import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
-from aiogram.filters import CommandObject
 
 # Бот забирает токен и ID чата из настроек Render
 TOKEN = os.getenv("BOT_TOKEN")
@@ -92,10 +91,10 @@ async def cmd_team(message: Message):
     text += "🔴 **ОТДЫХАЮТ:**\n" + ("\n".join(resting) if resting else "_Никого нет_")
     await message.answer(text, parse_mode="Markdown")
 
-# --- ИСПРАВЛЕННАЯ ФУНКЦИЯ КРИПТЫ ---
+# --- СУПЕРСТАБИЛЬНАЯ КОМАНДА КРИПТЫ ---
 @dp.message(Command("crypto"))
-async def cmd_crypto(message: Message, command: CommandObject):
-    usd_rub = 96.50  # Средний курс доллара к рублю на сегодня
+async def cmd_crypto(message: Message):
+    usd_rub = 96.50  # Средний курс доллара к рублю
     
     async with aiohttp.ClientSession() as session:
         try:
@@ -111,41 +110,10 @@ async def cmd_crypto(message: Message, command: CommandObject):
             await message.answer("❌ Не удалось получить свежие курсы с биржи. Попробуйте позже.")
             return
 
-    # Если воркер ввел просто /crypto
-    if not command.args:
-        text = f"📊 **Курсы криптовалют Bybit:**\n\n"
-        text += f"🪙 **Bitcoin (BTC):** ${btc_usd:,.2f} (~{btc_usd * usd_rub:,.0f} ₽)\n"
-        text += f"🔷 **Ethereum (ETH):** ${eth_usd:,.2f} (~{eth_usd * usd_rub:,.0f} ₽)\n"
-        text += f"💵 **USDT:** $1.00 (~{usd_rub:.2f} ₽)"
-        await message.answer(text, parse_mode="Markdown")
-        return
-
-    # Разбор аргументов для конвертера (например: /crypto 100 usdt)
-    args = command.args.lower().split()
-    if len(args) < 2:
-        await message.answer("⚠ Неверный формат. Используйте: `/crypto 100 usdt` или `/crypto 5000 rub`", parse_mode="Markdown")
-        return
-
-    try:
-        amount = float(args[0])
-        currency = args[1]
-    except ValueError:
-        await message.answer("❌ Первым аргументом должно быть число (сумма). Пример: `/crypto 50 usdt`", parse_mode="Markdown")
-        return
-
-    text = f"💱 **Результат конвертации ({amount:,.2f} {currency.upper()}):**\n\n"
-    if currency in ["usdt", "usd"]:
-        text += f"🔹 В рублях: **{amount * usd_rub:,.2f} ₽**\n"
-        text += f"🔹 В BTC: **{amount / btc_usd:.6f} BTC**"
-    elif currency in ["rub", "rur"]:
-        text += f"🔹 В USDT: **{amount / usd_rub:,.2f} USDT**\n"
-        text += f"🔹 В BTC: **{(amount / usd_rub) / btc_usd:.6f} BTC**"
-    elif currency == "btc":
-        text += f"🔹 В USDT: **{amount * btc_usd:,.2f} USDT**\n"
-        text += f"🔹 В рублях: **{amount * btc_usd * usd_rub:,.2f} ₽**"
-    else:
-        text = "❌ Данная валюта не поддерживается. Доступны: `usdt`, `rub`, `btc`."
-
+    text = f"📊 **Курсы криптовалют Bybit:**\n\n"
+    text += f"🪙 **Bitcoin (BTC):** ${btc_usd:,.2f} (~{btc_usd * usd_rub:,.0f} ₽)\n"
+    text += f"🔷 **Ethereum (ETH):** ${eth_usd:,.2f} (~{eth_usd * usd_rub:,.0f} ₽)\n"
+    text += f"💵 **USDT:** $1.00 (~{usd_rub:.2f} ₽)"
     await message.answer(text, parse_mode="Markdown")
 
 async def main():
