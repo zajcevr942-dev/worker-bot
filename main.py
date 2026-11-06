@@ -91,26 +91,27 @@ async def cmd_team(message: Message):
     text += "🔴 **ОТДЫХАЮТ:**\n" + ("\n".join(resting) if resting else "_Никого нет_")
     await message.answer(text, parse_mode="Markdown")
 
-# --- ЖЕЛЕЗОБЕТОННАЯ КРИПТА ЧЕРЕЗ BINANCE ---
+# --- НЕУБИВАЕМАЯ КРИПТА ЧЕРЕЗ ПУБЛИЧНЫЙ МИРРОР API ---
 @dp.message(Command("crypto"))
 async def cmd_crypto(message: Message):
     usd_rub = 96.50  # Средний курс доллара к рублю
     
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.get("https://binance.com") as r_btc:
+            # Используем открытый крипто-компар цен, который прощает запросы от хостингов
+            async with session.get("https://cryptocompare.com") as r_btc:
                 d_btc = await r_btc.json()
-                btc_usd = float(d_btc['price'])
+                btc_usd = float(d_btc['USD'])
             
-            async with session.get("https://binance.com") as r_eth:
+            async with session.get("https://cryptocompare.com") as r_eth:
                 d_eth = await r_eth.json()
-                eth_usd = float(d_eth['price'])
+                eth_usd = float(d_eth['USD'])
         except Exception as e:
-            print(f"Ошибка API Binance: {e}")
-            await message.answer("❌ Не удалось получить свежие курсы. Попробуйте позже.")
+            print(f"Ошибка API CryptoCompare: {e}")
+            await message.answer("❌ Не удалось получить курсы. Попробуйте позже.")
             return
 
-    text = f"📊 **Курсы криптовалют (Binance):**\n\n"
+    text = f"📊 **Курсы криптовалют:**\n\n"
     text += f"🪙 **Bitcoin (BTC):** ${btc_usd:,.2f} (~{btc_usd * usd_rub:,.0f} ₽)\n"
     text += f"🔷 **Ethereum (ETH):** ${eth_usd:,.2f} (~{eth_usd * usd_rub:,.0f} ₽)\n"
     text += f"💵 **USDT:** $1.00 (~{usd_rub:.2f} ₽)"
