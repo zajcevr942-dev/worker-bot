@@ -3,20 +3,15 @@ import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 
-# Бот забирает токен и ID чата из настроек Render
+# Бот забирает настройки из Render
 TOKEN = os.getenv("BOT_TOKEN")
 GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
+ADMIN_ID = os.getenv("ADMIN_ID")  # Твой личный ID для защиты команды /team
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 users_db = {}
-
-# Состояния для сдачи профита
-class ProfitStates(StatesGroup):
-    waiting_for_details = State()
 
 STATUSES = {
     "work": "🟢 Работает",
@@ -28,20 +23,28 @@ def get_status_keyboard():
     buttons = [
         [InlineKeyboardButton(text="🟢 Работаю", callback_data="set_work")],
         [InlineKeyboardButton(text="🟡 Занят", callback_data="set_busy")],
-        [InlineKeyboardButton(text="🔴 Отдыхаю", callback_data="set_rest")],
-        [InlineKeyboardButton(text="💰 Сдать профит", callback_data="report_profit")]
+        [InlineKeyboardButton(text="🔴 Отдыхаю", callback_data="set_rest")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+# Команды /start и /status работают ТОЛЬКО в личке, чтобы не мусорить в чате
 @dp.message(Command("start", "status"))
 async def cmd_status(message: Message):
+    if message.chat.type != "private":
+        # Если воркер пытается спамить командами в общем чате — бот молча удаляет его сообщение
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        return
+
     user_id = message.from_user.id
     username = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
     if user_id not in users_db:
         users_db[user_id] = {"name": username, "status": "🔴 Отдыхает"}
     current_status = users_db[user_id]["status"]
     await message.answer(
-        f"Привет! Твой текущий статус: **{current_status}**\nВыбери действие ниже:",
+        f"Привет! Твой текущий статус: **{current_status}**\nОбнови его кнопкой ниже:",
         reply_markup=get_status_keyboard(),
         parse_mode="Markdown"
     )
@@ -57,7 +60,7 @@ async def change_status(callback: CallbackQuery):
     
     try:
         await callback.message.edit_text(
-            f"Статус успешно обновлен на: **{new_status}**\nВыбери действие:",
+            f"Статус успешно обновлен на: **{new_status}**\nИзменить статус:",
             reply_markup=get_status_keyboard(),
             parse_mode="Markdown"
         )
@@ -76,46 +79,21 @@ async def change_status(callback: CallbackQuery):
         except Exception as e:
             print(f"Ошибка отправки в чат: {e}")
 
-# Обработка нажатия кнопки "Сдать профит"
-@dp.callback_query(F.data == "report_profit")
-async def start_profit_report(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer(
-        "💰 **Сдача отчета о профите**\n\nНапиши сумму и платформу одним сообщением.\n*Пример: 5000 руб казино Волна*",
-        parse_mode="Markdown"
-    )
-    await state.set_state(ProfitStates.waiting_for_details)
-    await callback.answer()
-
-# Прием данных профита от воркера
-@dp.message(ProfitStates.waiting_for_details)
-async def process_profit_report(message: Message, state: FSMContext):
-    username = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
-    profit_info = message.text
-
-    await state.clear()
-    await message.answer("✅ Отчет принят и отправлен в чат команды! Отличная работа, бро. 🔥")
-
-    # Отправка сочного сообщения в общий чат
-    if GROUP_CHAT_ID:
-        try:
-            text = f"🩸 **ФИКСАЦИЯ ПРОФИТА!** 🩸\n\n"
-            text += f"🎰 Воркер **{username}** занес жирный плюс!\n"
-            text += f"ℹ️ Инфо: **{profit_info}**\n\n"
-            text += f"*Работаем тихо, профит делим громко. Команда R. 🎭*"
-            
-            await bot.send_message(
-                chat_id=GROUP_CHAT_ID,
-                text=text,
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            print(f"Ошибка отправки профита в чат: {e}")
-
+# Команда /team защищена. Доступна только Тимлиду
 @dp.message(Command("team"))
 async def cmd_team(message: Message):
-    if not users_db:
-        await message.answer("В базе еще нет воркеров. Пусть все нажмут /start в боте.")
+    # Проверяем, совпадает ли ID написавшего с ID админа из настроек Render
+    if ADMIN_ID and str(message.from_user.id) != str(ADMIN_ID):
+        try:
+            await message.delete()  # Молча удаляем сообщение обнаглевшего воркера
+        except Exception:
+            pass
         return
+
+    if not users_db:
+        await message.answer("В базе еще нет воркеров. Пусть все нажмут /start в личке у бота.")
+        return
+        
     working, busy, resting = [], [], []
     for user_data in users_db.values():
         name = user_data["name"]
@@ -126,6 +104,7 @@ async def cmd_team(message: Message):
             busy.append(f"• {name}")
         elif "🔴" in status:
             resting.append(f"• {name}")
+            
     text = "📊 **Текущий статус команды:**\n\n"
     text += "🟢 **РАБОТАЮТ:**\n" + ("\n".join(working) if working else "_Никого нет_") + "\n\n"
     text += "🟡 **ЗАНЯТЫ:**\n" + ("\n".join(busy) if busy else "_Никого нет_") + "\n\n"
