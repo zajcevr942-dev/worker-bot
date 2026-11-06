@@ -91,31 +91,29 @@ async def cmd_team(message: Message):
     text += "🔴 **ОТДЫХАЮТ:**\n" + ("\n".join(resting) if resting else "_Никого нет_")
     await message.answer(text, parse_mode="Markdown")
 
-# --- СТАБИЛЬНАЯ КРИПТА ЧЕРЕЗ COINGECKO ---
+# --- ЖЕЛЕЗОБЕТОННАЯ КРИПТА ЧЕРЕЗ BINANCE ---
 @dp.message(Command("crypto"))
 async def cmd_crypto(message: Message):
     usd_rub = 96.50  # Средний курс доллара к рублю
-    url = "https://coingecko.com"
     
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    await message.answer("❌ Сервер курсов временно перегружен. Попробуйте через минуту.")
-                    return
-                data = await response.json()
-                btc_usd = float(data['bitcoin']['usd'])
-                eth_usd = float(data['ethereum']['usd'])
-                usdt_usd = float(data['tether']['usd'])
+            async with session.get("https://binance.com") as r_btc:
+                d_btc = await r_btc.json()
+                btc_usd = float(d_btc['price'])
+            
+            async with session.get("https://binance.com") as r_eth:
+                d_eth = await r_eth.json()
+                eth_usd = float(d_eth['price'])
         except Exception as e:
-            print(f"Ошибка API: {e}")
+            print(f"Ошибка API Binance: {e}")
             await message.answer("❌ Не удалось получить свежие курсы. Попробуйте позже.")
             return
 
-    text = f"📊 **Курсы криптовалют (CoinGecko):**\n\n"
+    text = f"📊 **Курсы криптовалют (Binance):**\n\n"
     text += f"🪙 **Bitcoin (BTC):** ${btc_usd:,.2f} (~{btc_usd * usd_rub:,.0f} ₽)\n"
     text += f"🔷 **Ethereum (ETH):** ${eth_usd:,.2f} (~{eth_usd * usd_rub:,.0f} ₽)\n"
-    text += f"💵 **USDT:** ${usdt_usd:.2f} (~{usdt_usd * usd_rub:.2f} ₽)"
+    text += f"💵 **USDT:** $1.00 (~{usd_rub:.2f} ₽)"
     await message.answer(text, parse_mode="Markdown")
 
 async def main():
