@@ -45,16 +45,20 @@ async def cmd_status(message: Message):
 async def change_status(callback: CallbackQuery):
     user_id = callback.from_user.id
     username = f"@{callback.from_user.username}" if callback.from_user.username else callback.from_user.full_name
-    status_key = callback.data.split("_")
+    status_key = callback.data.split("_")[1]
     new_status = STATUSES[status_key]
     
     users_db[user_id] = {"name": username, "status": new_status}
     
-    await callback.message.edit_text(
-        f"Статус успешно обновлен на: **{new_status}**\nИзменить статус:",
-        reply_markup=get_status_keyboard(),
-        parse_mode="Markdown"
-    )
+    try:
+        await callback.message.edit_text(
+            f"Статус успешно обновлен на: **{new_status}**\nИзменить статус:",
+            reply_markup=get_status_keyboard(),
+            parse_mode="Markdown"
+        )
+    except Exception:
+        pass
+        
     await callback.answer("Статус обновлен!")
     
     if GROUP_CHAT_ID:
@@ -70,7 +74,7 @@ async def change_status(callback: CallbackQuery):
 @dp.message(Command("team"))
 async def cmd_team(message: Message):
     if not users_db:
-        await message.answer("В базе еще нет воркеров. Пусть все нажмут /start in боте.")
+        await message.answer("В базе еще нет воркеров. Пусть все нажмут /start в боте.")
         return
     working, busy, resting = [], [], []
     for user_data in users_db.values():
@@ -88,11 +92,12 @@ async def cmd_team(message: Message):
     text += "🔴 **ОТДЫХАЮТ:**\n" + ("\n".join(resting) if resting else "_Никого нет_")
     await message.answer(text, parse_mode="Markdown")
 
-# --- НОВАЯ ФУНКЦИЯ: КРИПТО-ТРЕКЕР И КОНВЕРТЕР ---
+# --- ИСПРАВЛЕННАЯ ФУНКЦИЯ КРИПТЫ ---
 @dp.message(Command("crypto"))
 async def cmd_crypto(message: Message, command: CommandObject):
+    usd_rub = 96.50  # Средний курс доллара к рублю на сегодня
+    
     async with aiohttp.ClientSession() as session:
-        # Запрос актуальных курсов к бирже Bybit
         try:
             async with session.get("https://bybit.com") as r_btc:
                 d_btc = await r_btc.json()
@@ -101,12 +106,8 @@ async def cmd_crypto(message: Message, command: CommandObject):
             async with session.get("https://bybit.com") as r_eth:
                 d_eth = await r_eth.json()
                 eth_usd = float(d_eth['result']['list'][0]['lastPrice'])
-                
-            async with session.get("https://bybit.com") as r_rub:
-                # Берем примерный средний курс доллара к рублю
-                # Для стабильности берем фиксированный или вычисляемый биржевой курс
-                usd_rub = 96.50 
-        except Exception:
+        except Exception as e:
+            print(f"Ошибка API Bybit: {e}")
             await message.answer("❌ Не удалось получить свежие курсы с биржи. Попробуйте позже.")
             return
 
