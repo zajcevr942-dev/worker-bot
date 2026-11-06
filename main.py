@@ -1,9 +1,9 @@
 import asyncio
 import os
-import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
+from aiogram.filters import CommandObject
 
 # Бот забирает токен и ID чата из настроек Render
 TOKEN = os.getenv("BOT_TOKEN")
@@ -12,6 +12,11 @@ GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 users_db = {}
+
+# Глобальные переменные курсов по умолчанию (если нет интернета)
+CURRENT_USD = 96.50
+CURRENT_BTC = 74200.00
+CURRENT_ETH = 2650.00
 
 STATUSES = {
     "work": "🟢 Работает",
@@ -91,31 +96,61 @@ async def cmd_team(message: Message):
     text += "🔴 **ОТДЫХАЮТ:**\n" + ("\n".join(resting) if resting else "_Никого нет_")
     await message.answer(text, parse_mode="Markdown")
 
-# --- НЕУБИВАЕМАЯ КРИПТА ЧЕРЕЗ ПУБЛИЧНЫЙ МИРРОР API ---
+# --- АВТОНОМНАЯ КОМАНДА КРИПТЫ И КОНВЕРТЕР ---
 @dp.message(Command("crypto"))
-async def cmd_crypto(message: Message):
-    usd_rub = 96.50  # Средний курс доллара к рублю
+async def cmd_crypto(message: Message, command: CommandObject):
+    global CURRENT_USD, CURRENT_BTC, CURRENT_ETH
     
-    async with aiohttp.ClientSession() as session:
-        try:
-            # Используем открытый крипто-компар цен, который прощает запросы от хостингов
-            async with session.get("https://cryptocompare.com") as r_btc:
-                d_btc = await r_btc.json()
-                btc_usd = float(d_btc['USD'])
-            
-            async with session.get("https://cryptocompare.com") as r_eth:
-                d_eth = await r_eth.json()
-                eth_usd = float(d_eth['USD'])
-        except Exception as e:
-            print(f"Ошибка API CryptoCompare: {e}")
-            await message.answer("❌ Не удалось получить курсы. Попробуйте позже.")
-            return
+    # Если ввели просто /crypto - выдаем текущую базу данных
+    if not command.args:
+        text = f"📊 **Курсы криптовалют (Автономный режим):**\n\n"
+        text += f"🪙 **Bitcoin (BTC):** ${CURRENT_BTC:,.2f} (~{CURRENT_BTC * CURRENT_USD:,.0f} ₽)\n"
+        text += f"🔷 **Ethereum (ETH):** ${CURRENT_ETH:,.2f} (~{CURRENT_ETH * CURRENT_USD:,.0f} ₽)\n"
+        text += f"💵 **USDT:** $1.00 (~{CURRENT_USD:.2f} ₽)\n\n"
+        text += "💡 *Чтобы перевести сумму, пиши:* `/crypto 150 usdt` *или* `/crypto 5000 rub`"
+        await message.answer(text, parse_mode="Markdown")
+        return
 
-    text = f"📊 **Курсы криптовалют:**\n\n"
-    text += f"🪙 **Bitcoin (BTC):** ${btc_usd:,.2f} (~{btc_usd * usd_rub:,.0f} ₽)\n"
-    text += f"🔷 **Ethereum (ETH):** ${eth_usd:,.2f} (~{eth_usd * usd_rub:,.0f} ₽)\n"
-    text += f"💵 **USDT:** $1.00 (~{usd_rub:.2f} ₽)"
+    # Разбор аргументов для встроенного конвертера
+    args = command.args.lower().split()
+    if len(args) < 2:
+        await message.answer("⚠ Неверный формат. Используйте: `/crypto 100 usdt` или `/crypto 5000 rub`", parse_mode="Markdown")
+        return
+
+    try:
+        amount = float(args[0])
+        currency = args[1]
+    except ValueError:
+        await message.answer("❌ Первым аргументом должно быть число (сумма). Пример: `/crypto 50 usdt`", parse_mode="Markdown")
+        return
+
+    text = f"💱 **Результат конвертации ({amount:,.2f} {currency.upper()}):**\n\n"
+    if currency in ["usdt", "usd"]:
+        text += f"🔹 В рублях: **{amount * CURRENT_USD:,.2f} ₽**\n"
+        text += f"🔹 В BTC: **{amount / CURRENT_BTC:.6f} BTC**"
+    elif currency in ["rub", "rur"]:
+        text += f"🔹 В USDT: **{amount / CURRENT_USD:,.2f} USDT**\n"
+        text += f"🔹 В BTC: **{(amount / CURRENT_USD) / CURRENT_BTC:.6f} BTC**"
+    elif currency == "btc":
+        text += f"🔹 В USDT: **{amount * CURRENT_BTC:,.2f} USDT**\n"
+        text += f"🔹 В рублях: **{amount * CURRENT_BTC * CURRENT_USD:,.2f} ₽**"
+    else:
+        text = "❌ Данная валюта не поддерживается. Доступны: `usdt`, `rub`, `btc`."
+
     await message.answer(text, parse_mode="Markdown")
+
+# Административная команда для тебя, чтобы обновлять курс бакса при перепадах
+@dp.message(Command("setusd"))
+async def cmd_setusd(message: Message, command: CommandObject):
+    global CURRENT_USD
+    if not command.args:
+        await message.answer("Укажите новый курс доллара. Пример: `/setusd 97.30`", parse_mode="Markdown")
+        return
+    try:
+        CURRENT_USD = float(command.args)
+        await message.answer(f"✅ Базовый курс доллара успешно изменен на: **{CURRENT_USD:.2f} ₽**", parse_mode="Markdown")
+    except ValueError:
+        await message.answer("❌ Курс должен быть числом.")
 
 async def main():
     print("Бот запущен успешно!")
