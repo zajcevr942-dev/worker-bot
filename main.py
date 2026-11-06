@@ -4,8 +4,9 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
-# Бот сам заберет токен из переменной BOT_TOKEN на Render
+# Бот забирает токен и ID чата из настроек Render
 TOKEN = os.getenv("BOT_TOKEN")
+GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -33,7 +34,7 @@ async def cmd_status(message: Message):
         users_db[user_id] = {"name": username, "status": "🔴 Отдыхает"}
     current_status = users_db[user_id]["status"]
     await message.answer(
-        f"Привет! Твой текущий статус: **{current_status}**\nОбнови его кнопкой ниже:",
+        f"Привет! ТвойBox текущий статус: **{current_status}**\nОбнови его кнопкой ниже:",
         reply_markup=get_status_keyboard(),
         parse_mode="Markdown"
     )
@@ -44,13 +45,26 @@ async def change_status(callback: CallbackQuery):
     username = f"@{callback.from_user.username}" if callback.from_user.username else callback.from_user.full_name
     status_key = callback.data.split("_")[1]
     new_status = STATUSES[status_key]
+    
     users_db[user_id] = {"name": username, "status": new_status}
+    
     await callback.message.edit_text(
         f"Статус успешно обновлен на: **{new_status}**\nИзменить статус:",
         reply_markup=get_status_keyboard(),
         parse_mode="Markdown"
     )
     await callback.answer("Статус обновлен!")
+    
+    # Отправка уведомления в общий чат команды
+    if GROUP_CHAT_ID:
+        try:
+            await bot.send_message(
+                chat_id=GROUP_CHAT_ID,
+                text=f"🔔 Воркер {username} изменил статус на: **{new_status}**",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            print(f"Ошибка отправки в чат: {e}")
 
 @dp.message(Command("team"))
 async def cmd_team(message: Message):
