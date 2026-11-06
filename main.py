@@ -44,7 +44,7 @@ async def cmd_status(message: Message):
 async def change_status(callback: CallbackQuery):
     user_id = callback.from_user.id
     username = f"@{callback.from_user.username}" if callback.from_user.username else callback.from_user.full_name
-    status_key = callback.data.split("_")[1]
+    status_key = callback.data.split("_")
     new_status = STATUSES[status_key]
     
     users_db[user_id] = {"name": username, "status": new_status}
@@ -91,29 +91,31 @@ async def cmd_team(message: Message):
     text += "🔴 **ОТДЫХАЮТ:**\n" + ("\n".join(resting) if resting else "_Никого нет_")
     await message.answer(text, parse_mode="Markdown")
 
-# --- СУПЕРСТАБИЛЬНАЯ КОМАНДА КРИПТЫ ---
+# --- СТАБИЛЬНАЯ КРИПТА ЧЕРЕЗ COINGECKO ---
 @dp.message(Command("crypto"))
 async def cmd_crypto(message: Message):
     usd_rub = 96.50  # Средний курс доллара к рублю
+    url = "https://coingecko.com"
     
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.get("https://bybit.com") as r_btc:
-                d_btc = await r_btc.json()
-                btc_usd = float(d_btc['result']['list'][0]['lastPrice'])
-            
-            async with session.get("https://bybit.com") as r_eth:
-                d_eth = await r_eth.json()
-                eth_usd = float(d_eth['result']['list'][0]['lastPrice'])
+            async with session.get(url) as response:
+                if response.status != 200:
+                    await message.answer("❌ Сервер курсов временно перегружен. Попробуйте через минуту.")
+                    return
+                data = await response.json()
+                btc_usd = float(data['bitcoin']['usd'])
+                eth_usd = float(data['ethereum']['usd'])
+                usdt_usd = float(data['tether']['usd'])
         except Exception as e:
-            print(f"Ошибка API Bybit: {e}")
-            await message.answer("❌ Не удалось получить свежие курсы с биржи. Попробуйте позже.")
+            print(f"Ошибка API: {e}")
+            await message.answer("❌ Не удалось получить свежие курсы. Попробуйте позже.")
             return
 
-    text = f"📊 **Курсы криптовалют Bybit:**\n\n"
+    text = f"📊 **Курсы криптовалют (CoinGecko):**\n\n"
     text += f"🪙 **Bitcoin (BTC):** ${btc_usd:,.2f} (~{btc_usd * usd_rub:,.0f} ₽)\n"
     text += f"🔷 **Ethereum (ETH):** ${eth_usd:,.2f} (~{eth_usd * usd_rub:,.0f} ₽)\n"
-    text += f"💵 **USDT:** $1.00 (~{usd_rub:.2f} ₽)"
+    text += f"💵 **USDT:** ${usdt_usd:.2f} (~{usdt_usd * usd_rub:.2f} ₽)"
     await message.answer(text, parse_mode="Markdown")
 
 async def main():
