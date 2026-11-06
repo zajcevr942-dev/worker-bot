@@ -1,27 +1,20 @@
 import asyncio
 import os
-import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-# Включаем логирование, чтобы видеть ошибки в панели Render
-logging.basicConfig(level=logging.INFO)
-
 # Бот забирает настройки из Render
 TOKEN = os.getenv("BOT_TOKEN")
 GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 ADMIN_ID = os.getenv("ADMIN_ID")
-TEAM_PASSWORD = os.getenv("TEAM_PASSWORD") # Секретный пароль для воркеров
+TEAM_PASSWORD = os.getenv("TEAM_PASSWORD")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
-
 users_db = {}
-# Список ID пользователей, которые успешно прошли проверку пароля
-authorized_users = set()
 
 # Состояния для сдачи профита и ввода пароля
 class BotStates(StatesGroup):
@@ -55,12 +48,11 @@ def get_status_keyboard():
 
 # --- ЛОГИКА БОТА ---
 
-# Проверка авторизации
+# Проверка авторизации воркера
 def is_authorized(user_id):
-    # Тимлид всегда авторизован автоматически
     if ADMIN_ID and str(user_id) == str(ADMIN_ID):
         return True
-    return user_id in authorized_users
+    return users_db.get(user_id, {}).get("authorized", False)
 
 # Старт (Главное меню или Ввод пароля)
 @dp.message(Command("start", "status"))
@@ -76,17 +68,21 @@ async def cmd_start(message: Message, state: FSMContext):
     user_id = message.from_user.id
     username = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
     
-    # Если пароль задан в Render и юзер еще не авторизован
-    if TEAM_PASSWORD and not is_authorized(user_id):
+    # Создаем запись в базе, если юзера нет
+    if user_id not in users_db:
+        users_db[user_id] = {"name": username, "status": "🔴 Отдыхает", "authorized": False}
+        
+    # Если это Тимлид — пускаем без пароля автоматически
+    if ADMIN_ID and str(user_id) == str(ADMIN_ID):
+        users_db[user_id]["authorized"] = True
+
+    # Если пароль задан в Render и воркер еще не ввел его
+    if TEAM_PASSWORD and not users_db[user_id]["authorized"]:
         await message.answer("🔒 **Вход закрыт.**\n\nВведите секретный код команды для доступа к боту:")
         await state.set_state(BotStates.waiting_for_password)
         return
 
-    if user_id not in users_db:
-        users_db[user_id] = {"name": username, "status": "🔴 Отдыхает"}
-        
     current_status = users_db[user_id]["status"]
-    
     await message.answer(
         f"📋 **Главное меню**\n\nВаш текущий статус: **{current_status}**\nВыберите нужный раздел:",
         reply_markup=get_main_keyboard(),
@@ -100,15 +96,15 @@ async def process_password(message: Message, state: FSMContext):
         return
 
     user_id = message.from_user.id
-    username = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
     
     if message.text == TEAM_PASSWORD:
-        authorized_users.add(user_id)
-        await state.clear()
-        
         if user_id not in users_db:
-            users_db[user_id] = {"name": username, "status": "🔴 Отдыхает"}
+            username = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
+            users_db[user_id] = {"name": username, "status": "🔴 Отдыхает", "authorized": True}
+        else:
+            users_db[user_id]["authorized"] = True
             
+        await state.clear()
         await message.answer(
             f"✅ **Доступ успешно открыт!**\n\n📋 **Главное меню**\nВаш текущий статус: **🔴 Отдыхает**\nВыберите нужный раздел:",
             reply_markup=get_main_keyboard(),
@@ -160,10 +156,13 @@ async def change_status(callback: CallbackQuery):
         return
         
     username = f"@{callback.from_user.username}" if callback.from_user.username else callback.from_user.full_name
-    status_key = callback.data.split("_")[1] # Берем именно "work", "busy" или "rest"
+    status_key = callback.data.split("_")
     new_status = STATUSES[status_key]
     
-    users_db[user_id] = {"name": username, "status": new_status}
+    if user_id not in users_db:
+        users_db[user_id] = {"name": username, "status": new_status, "authorized": True}
+    else:
+        users_db[user_id]["status"] = new_status
     
     try:
         await callback.message.edit_text(
@@ -174,7 +173,7 @@ async def change_status(callback: CallbackQuery):
     except Exception:
         pass
         
-    await callback.answer(f"Статус изменен")
+    await callback.answer("Статус обновлен")
     
     if GROUP_CHAT_ID:
         try:
@@ -227,57 +226,45 @@ async def process_profit_report(message: Message, state: FSMContext):
             text = f"💰 **Новый профит**\n\n👤 Воркер: **{username}**\n📊 Информация: **{profit_info}**"
             await bot.send_message(chat_id=GROUP_CHAT_ID, text=text, parse_mode="Markdown")
         except Exception as e:
-            print(f"Ошибка отправки профита в чат: {e}")
+            print(f"Ошибка отправки в чат: {e}")
 
-# Просмотр статусов всей команды
+# Защищенная команда /team для Тимлида
 @dp.message(Command("team"))
 async def cmd_team(message: Message):
-    user_id = message.from_user.id
-    
-    # Проверяем авторизацию (чтобы чужие люди из чатов не спамили команду)
-    if not is_authorized(user_id):
+    if ADMIN_ID and str(message.from_user.id) != str(ADMIN_ID):
         try:
-            await message.reply("🔒 **Доступ запрещен.** Сначала авторизуйтесь в личке у бота через /start")
+            await message.delete()
         except Exception:
             pass
         return
 
-    if not users_db:
-        await message.answer("📋 **Список команды пуст.** Никто еще не выбрал статус.")
+    # Фильтруем базу, показываем только тех, кто реально ввел пароль или является админом
+    active_workers = {k: v for k, v in users_db.items() if v.get("authorized") == True}
+
+    if not active_workers:
+        await message.answer("В базе еще нет воркеров. Пусть все введут пароль в личке у бота.")
         return
-
-    # Разделяем команду по категориям для удобства
-    working_now = []
-    busy_now = []
-    resting_now = []
-
-    for u_id, data in users_db.items():
-        if "Работает" in data["status"]:
-            working_now.append(data["name"])
-        elif "Занят" in data["status"]:
-            busy_now.append(data["name"])
-        else:
-            resting_now.append(data["name"])
-
-    text = "📊 **Текущий статус всей команды:**\n\n"
-    
-    text += "🟢 **В РАБОТЕ:**\n"
-    if working_now:
-        text += "\n".join([f"  • {user}" for user in working_now]) + "\n"
-    else:
-        text += "  _Никого нет_\n"
         
-    text += "\n🟡 **ЗАНЯТЫ:**\n"
-    if busy_now:
-        text += "\n".join([f"  • {user}" for user in busy_now]) + "\n"
-    else:
-        text += "  _Никого нет_\n"
-        
-    text += "\n🔴 **ОТДЫХАЮТ:**\n"
-    if resting_now:
-        text += "\n".join([f"  • {user}" for user in resting_now]) + "\n"
-    else:
-        text += "  _Никого нет_"
-
+    working, busy, resting = [], [], []
+    for user_data in active_workers.values():
+        name = user_data["name"]
+        status = user_data["status"]
+        if "🟢" in status:
+            working.append(f"• {name}")
+        elif "🟡" in status:
+            busy.append(f"• {name}")
+        elif "🔴" in status:
+            resting.append(f"• {name}")
+            
+    text = "📊 **Текущий статус команды:**\n\n"
+    text += "🟢 **РАБОТАЮТ:**\n" + ("\n".join(working) if working else "_Никого нет_") + "\n\n"
+    text += "🟡 **ЗАНЯТЫ:**\n" + ("\n".join(busy) if busy else "_Никого нет_") + "\n\n"
+    text += "🔴 **ОТДЫХАЮТ:**\n" + ("\n".join(resting) if resting else "_Никого нет_")
     await message.answer(text, parse_mode="Markdown")
 
+async def main():
+    print("Бот запущен успешно!")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
